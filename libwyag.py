@@ -126,7 +126,22 @@ def repo_default_config():
     ret.set("core", "bare", "false")
 
     return ret
-            
+
+argsp = argsubparsers.add_parser("init", help="Initialize a new, empty repository.")
+
+# Optional positional argument: repository directory (defaults to current directory if not provided)
+# wyag init            # creates repo in current directory
+# wyag init projectA   # creates repo in ./projectA
+
+argsp.add_argument("path",
+                   metavar="directory",
+                   nargs="?",
+                   default=".",
+                   help="Where to create the repository.")
+
+def cmd_init(args):
+    repo_create(args.path)
+
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
     match args.command:
