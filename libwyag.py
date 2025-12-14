@@ -163,6 +163,99 @@ def repo_find(path=".", required=True):
     # Recursive case
     return repo_find(parent, required)
 
+"""
+git hash-object: converts an existing file into a git object
+git cat-file: prints an existing git object to the standard output
+
+git object is a file stored in .git/objects and it is named by the hash of its content
+Git takes the content of the object and computes a SHA-1 hash (40 characters lowercase hexadecimal)
+first 2 characters are the directory name and the 38 remaining are the file name
+example: .git/objects/e9/65047ad7c57865823c7d992b1d046ea66edf78
+2 hex characters → 16² = 256 directories
+this: Spreads objects evenly, Avoids huge directories, Stays fast even with millions of objects
+
+example of storage format:
+00000000  63 6f 6d 6d 69 74 20 31  30 38 36 00 74 72 65 65  |commit 1086.tree|
+00000010  20 32 39 66 66 31 36 63  39 63 31 34 65 32 36 35  | 29ff16c9c14e265|
+00000020  32 62 32 32 66 38 62 37  38 62 62 30 38 61 35 61  |2b22f8b78bb08a5a|
+"""
+
+class GitObject (object):
+
+    def __init__(self, data=None):
+        if data != None:
+            self.deserialize(data)
+        else:
+            self.init()
+
+    def serialize(self, repo):
+        """
+        This function MUST be implemented by subclasses.
+        It must read the object's contents from self.data, a byte string, and
+        do whatever it takes to convert it into a meaningful representation.
+        What exactly that means depend on each subclass.
+
+        """
+        raise Exception("Unimplemented!")
+
+    def deserialize(self, data):
+        raise Exception("Unimplemented!")
+
+    def init(self):
+        pass # Just do nothing. This is a reasonable default!
+
+def object_read(repo, sha):
+    """Read object sha from Git repository repo.  Return a
+    GitObject whose exact type depends on the object."""
+
+    path = repo_file(repo, "objects", sha[0:2], sha[2:])
+
+    if not os.path.isfile(path):
+        return None
+
+    with open (path, "rb") as f:
+        raw = zlib.decompress(f.read())
+
+        # Read object type
+        x = raw.find(b' ')
+        fmt = raw[0:x]
+
+        # Read and validate object size
+        y = raw.find(b'\x00', x)
+        size = int(raw[x:y].decode("ascii"))
+        if size != len(raw)-y-1:
+            raise Exception(f"Malformed object {sha}: bad length")
+
+        # Pick constructor
+        match fmt:
+            case b'commit' : c=GitCommit
+            case b'tree'   : c=GitTree
+            case b'tag'    : c=GitTag
+            case b'blob'   : c=GitBlob
+            case _:
+                raise Exception(f"Unknown type {fmt.decode("ascii")} for object {sha}")
+
+        # Call constructor and return object
+        return c(raw[y+1:])
+
+def object_write(obj, repo=None):
+    # Serialize object data
+    data = obj.serialize()
+    # Add header
+    result = obj.fmt + b' ' + str(len(data)).encode() + b'\x00' + data
+    # Compute hash
+    sha = hashlib.sha1(result).hexdigest()
+
+    if repo:
+        # Compute path
+        path=repo_file(repo, "objects", sha[0:2], sha[2:], mkdir=True)
+
+        if not os.path.exists(path):
+            with open(path, 'wb') as f:
+                # Compress and write
+                f.write(zlib.compress(result))
+    return sha
+    
 def main(argv=sys.argv[1:]):
     args = argparser.parse_args(argv)
     match args.command:
